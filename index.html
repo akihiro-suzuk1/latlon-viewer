@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Polygon Plotter (Hover → Table Highlight)</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 1rem;
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      textarea {
+        width: 100%;
+        height: 200px;
+        font-family: monospace;
+      }
+      canvas {
+        border: 1px solid #ccc;
+        margin-top: 1rem;
+        cursor: crosshair;
+      }
+      #pointList {
+        margin-top: 0.5rem;
+        font-size: 0.9rem;
+      }
+      #pointList table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      #pointList th,
+      #pointList td {
+        border: 1px solid #ddd;
+        padding: 4px 6px;
+        text-align: center;
+      }
+      /* ハイライト用 */
+      #pointList tr.highlight {
+        background-color: #ffff99;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>テキスト貼り付け → 緯度経度ポリゴン描画</h2>
+    <textarea
+      id="jsonInput"
+      placeholder="ここにGeoJSONや緯度経度を含むテキストを貼り付けてください"
+    ></textarea>
+    <canvas id="canvas" width="500" height="500"></canvas>
+    <div id="pointList"></div>
+
+    <script>
+      let points = []; // グローバルに保持
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const listDiv = document.getElementById("pointList");
+
+      document.getElementById("jsonInput").addEventListener("input", draw);
+      canvas.addEventListener("mousemove", onHover);
+      canvas.addEventListener("mouseout", clearHighlight);
+
+      function extractLatLngPairs(text) {
+        const numRegex = /-?\d+\.\d+/g;
+        const nums = Array.from(text.matchAll(numRegex), m => parseFloat(m[0]));
+        const pairs = [];
+        for (let i = 0; i < nums.length - 1; i++) {
+          const a = nums[i], b = nums[i + 1];
+          let p = null;
+          if (122 <= a && a <= 146 && 24 <= b && b <= 46) p = [a,b];
+          else if (24 <= a && a <= 46 && 122 <= b && b <= 146) p = [b,a];
+          if (p) { pairs.push(p); i++; }
+        }
+        return pairs;
+      }
+
+      function draw() {
+        const raw = document.getElementById("jsonInput").value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        listDiv.innerHTML = "";
+        const coords = extractLatLngPairs(raw);
+        if (coords.length < 2) return;
+
+        // スケーリング
+        const lngs = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+        const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+        const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+        const pad = 20;
+        const w = canvas.width - pad*2, h = canvas.height - pad*2;
+        const sx = w/(maxLng-minLng), sy = h/(maxLat-minLat);
+        const scale = Math.min(sx, sy);
+
+        // プロット用オブジェクト生成
+        points = coords.map(([lng,lat]) => ({
+          x: (lng - minLng)*scale + pad,
+          y: canvas.height - ((lat-minLat)*scale + pad),
+          lng, lat
+        }));
+
+        // ポリゴン
+        ctx.beginPath();
+        points.forEach((pt, i) => i===0 ? ctx.moveTo(pt.x,pt.y) : ctx.lineTo(pt.x,pt.y));
+        ctx.closePath();
+        ctx.strokeStyle = "#333"; ctx.lineWidth = 2; ctx.stroke();
+
+        // 点＋番号ラベル
+        ctx.fillStyle = "#f00"; ctx.font = "16px sans-serif";
+        points.forEach((pt, idx) => {
+          ctx.beginPath();
+          ctx.arc(pt.x,pt.y,4,0,Math.PI*2);
+          ctx.fill();
+          ctx.fillText(idx+1, pt.x+6, pt.y-6);
+        });
+
+        // テーブル生成
+        const table = document.createElement("table");
+        table.innerHTML =
+          "<thead><tr><th>#</th><th>Longitude</th><th>Latitude</th></tr></thead>";
+        const tbody = document.createElement("tbody");
+        points.forEach((pt, idx) => {
+          const tr = document.createElement("tr");
+          tr.dataset.index = idx;  // hover時に参照
+          tr.innerHTML = `<td>${idx+1}</td><td>${pt.lng.toFixed(6)}</td><td>${pt.lat.toFixed(6)}</td>`;
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        listDiv.appendChild(table);
+      }
+
+      function onHover(evt) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = evt.clientX - rect.left, my = evt.clientY - rect.top;
+        clearHighlight();
+        // threshold 内ならその行を highlight
+        const thresh = 6;
+        const hit = points.findIndex(pt =>
+          Math.hypot(pt.x - mx, pt.y - my) <= thresh
+        );
+        if (hit >= 0) {
+          // テーブル行ハイライト
+          const row = listDiv.querySelector(`tr[data-index='${hit}']`);
+          if (row) row.classList.add("highlight");
+        }
+      }
+
+      function clearHighlight() {
+        listDiv.querySelectorAll("tr.highlight").forEach(tr =>
+          tr.classList.remove("highlight")
+        );
+      }
+    </script>
+  </body>
+</html>
